@@ -223,6 +223,14 @@ pub fn release(o: &Opts) -> Result<Vec<String>, String> {
         pkg_note = "package skipped".into();
     }
 
+    // keep target/release in step with the release, so a PATH copy built from it is never stale
+    let rebuilt = if o.no_package {
+        ""
+    } else {
+        sh(&root, "cargo", &["build", "--release", "--quiet"])?;
+        " | binary rebuilt"
+    };
+
     sh(&root, "git", &["add", "-A"])?;
     let title = format!("{name} {new}: {}", o.message);
     let mut args = vec!["commit", "-q", "-m", title.as_str()];
@@ -235,7 +243,7 @@ pub fn release(o: &Opts) -> Result<Vec<String>, String> {
         .trim()
         .to_string();
     lines.push(format!(
-        "{old} -> {new} | changelog ok | {pkg_note} | committed {sha} | tag {tag}"
+        "{old} -> {new} | changelog ok | {pkg_note}{rebuilt} | committed {sha} | tag {tag}"
     ));
     if o.push {
         sh(&root, "git", &["push", "origin", "HEAD", &tag])?;

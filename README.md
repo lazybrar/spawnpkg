@@ -49,7 +49,7 @@ that step's diagnostics, trimmed to 30 lines. Exit status 0 or 1.
     spawnpkg release patch -m "what changed"            # or minor / major
     spawnpkg release minor -m "..." --push --trailer "Co-Authored-By: ..."
 
-Runs the gate, bumps the version in `Cargo.toml`, adds a `CHANGELOG.md` entry, refreshes `Cargo.lock`, regenerates
+Runs the gate, bumps the version in `Cargo.toml`, adds a `CHANGELOG.md` entry, refreshes `Cargo.lock`, rebuilds `target/release`, regenerates
 `pkg/PKGBUILD` and rebuilds the package (needs `cratepkg`; keeps a custom `--pkgname` / `--no-check`), commits
 `<name> <ver>: <message>`, tags `v<ver>`, and with `--push` pushes the branch and tag. Uncommitted changes are included in
 the release commit. `--dry-run` shows the plan; `--no-package` and `--skip-gate` skip those steps. Output is 2-3 lines.

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.1
+- release rebuilds target/release so a PATH copy is never stale
+
 ## 0.3.0
 - gate and release commands; new accepts --no-github
 
