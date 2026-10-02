@@ -15,14 +15,14 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 const USAGE: &str = "spawnpkg: name check, scaffold and publish for small Rust tools
 
 usage:
-  spawnpkg check <name>... [--brief] [--all]
+  spawnpkg check <name>... [--brief] [--all] [--no-github]
       is the name used on: Arch repos (incl. provides), AUR, crates.io, your PATH (blocking),
       and GitHub, npm, PyPI, Homebrew, Debian (informational)?
-      default: verdict + only the clashes   --all: every source
+      default: verdict + only the clashes   --all: every source   --no-github: skip the GitHub probe
       --brief: one line per name for scripts/AI, e.g. `foo taken:!crates,github ?:npm`
                (`!` = blocking source, `?:` = source could not be checked)
       exit: 0 free everywhere, 1 taken somewhere, 2 usage error
-  spawnpkg new <name> [--desc TEXT] [--dir PATH] [--trailer TEXT] [--skip-check] [--allow-taken]
+  spawnpkg new <name> [--desc TEXT] [--dir PATH] [--trailer TEXT] [--skip-check] [--allow-taken] [--no-github]
       checks the name, then creates ~/work/projects/small/<name> (override base with $SPAWNPKG_BASE):
       Cargo.toml, src, GPL-2.0-or-later LICENSE, README, CHANGELOG, CI, Cargo.lock,
       pkg/PKGBUILD (if cratepkg is installed) and a first git commit (--trailer adds a trailer line)
@@ -35,6 +35,7 @@ enum Cmd {
         names: Vec<String>,
         brief: bool,
         all: bool,
+        no_github: bool,
     },
     New {
         name: String,
@@ -43,6 +44,7 @@ enum Cmd {
         trailer: Option<String>,
         skip_check: bool,
         allow_taken: bool,
+        no_github: bool,
     },
     Publish {
         path: PathBuf,
@@ -65,7 +67,7 @@ fn parse_args(args: &[String]) -> Result<Cmd, String> {
         other => return Err(format!("unknown command '{other}'")),
     }
     let allowed: &[&str] = match first.as_str() {
-        "check" => &["--brief", "--all"],
+        "check" => &["--brief", "--all", "--no-github"],
         "new" => &[
             "--desc",
             "--dir",
@@ -108,6 +110,7 @@ fn parse_args(args: &[String]) -> Result<Cmd, String> {
                 names: pos,
                 brief: flag("--brief"),
                 all: flag("--all"),
+                no_github: flag("--no-github"),
             })
         }
         "new" => {
@@ -126,6 +129,7 @@ fn parse_args(args: &[String]) -> Result<Cmd, String> {
                 trailer: val("--trailer"),
                 skip_check: flag("--skip-check"),
                 allow_taken: flag("--allow-taken"),
+                no_github: flag("--no-github"),
             })
         }
         _ => {
@@ -212,7 +216,12 @@ fn run(cmd: Cmd) -> Result<ExitCode, String> {
     match cmd {
         Cmd::Help => println!("{USAGE}"),
         Cmd::Version => println!("spawnpkg {VERSION}"),
-        Cmd::Check { names, brief, all } => {
+        Cmd::Check {
+            names,
+            brief,
+            all,
+            no_github,
+        } => {
             if let Some(bad) = names.iter().find(|n| !sources::valid_name(n)) {
                 return Err(format!(
                     "invalid name '{bad}' (lowercase letters, digits and @._+- only)"
@@ -220,7 +229,7 @@ fn run(cmd: Cmd) -> Result<ExitCode, String> {
             }
             let mut any = false;
             for n in &names {
-                any |= report(n, &sources::check(n), brief, all);
+                any |= report(n, &sources::check(n, no_github), brief, all);
             }
             return Ok(if any {
                 ExitCode::from(1)
@@ -235,6 +244,7 @@ fn run(cmd: Cmd) -> Result<ExitCode, String> {
             trailer,
             skip_check,
             allow_taken,
+            no_github,
         } => {
             if !sources::valid_name(&name) {
                 return Err(format!(
@@ -242,7 +252,7 @@ fn run(cmd: Cmd) -> Result<ExitCode, String> {
                 ));
             }
             if !skip_check {
-                let res = sources::check(&name);
+                let res = sources::check(&name, no_github);
                 report(&name, &res, true, false);
                 let hard: Vec<&Res> = res
                     .iter()
@@ -346,7 +356,8 @@ mod tests {
             Ok(Cmd::Check {
                 names: vec!["x".into(), "y".into()],
                 brief: true,
-                all: false
+                all: false,
+                no_github: false
             })
         );
         assert!(
@@ -360,7 +371,8 @@ mod tests {
                 dir: None,
                 trailer: None,
                 skip_check: true,
-                allow_taken: false
+                allow_taken: false,
+                no_github: false
             })
         );
         assert!(a(&["new", "x", "--desc"]).is_err());

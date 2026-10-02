@@ -9,6 +9,7 @@ publish it to GitHub. Zero dependencies, written in Rust. Uses `curl`, `git`, `c
     spawnpkg check foo bar            # verdict + only the clashes
     spawnpkg check foo --all          # every source
     spawnpkg check foo bar --brief    # one line per name, minimal output (for scripts and AI)
+    spawnpkg check foo --no-github    # skip the GitHub probe (also accepted by `new`)
 
 Sources (probed in parallel, about a second in total):
 

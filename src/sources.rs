@@ -40,10 +40,11 @@ pub fn valid_name(n: &str) -> bool {
         && !n.starts_with(['-', '.'])
 }
 
-pub fn check(name: &str) -> Vec<Res> {
+pub fn check(name: &str, no_github: bool) -> Vec<Res> {
     thread::scope(|s| {
         let handles: Vec<_> = SOURCES
             .iter()
+            .filter(|(s, _)| !(no_github && *s == "github"))
             .map(|&(source, hard)| (source, hard, s.spawn(move || probe(source, name))))
             .collect();
         handles

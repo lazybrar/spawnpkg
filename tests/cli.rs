@@ -125,3 +125,19 @@ fn publish_guards() {
     assert_eq!(o.status.code(), Some(1));
     assert!(err(&o).contains("not a git repository"));
 }
+
+#[test]
+fn no_github_flag_is_accepted() {
+    // flag parsing only: an invalid name still exits 2 before any network access
+    assert_eq!(
+        run(&["check", "Bad Name", "--no-github"]).status.code(),
+        Some(2)
+    );
+    assert_eq!(
+        run(&["new", "Bad Name", "--no-github", "--skip-check"])
+            .status
+            .code(),
+        Some(2)
+    );
+    assert_eq!(run(&["check", "x", "--nope"]).status.code(), Some(2));
+}

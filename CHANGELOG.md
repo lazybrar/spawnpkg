@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.0
+- `--no-github` for `check` and `new` skips the GitHub probe.
+
 ## 0.1.1
 - GitHub check falls back to unauthenticated curl when `gh` is missing or not logged in (was reported as unchecked).
 
