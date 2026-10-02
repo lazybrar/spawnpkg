@@ -191,9 +191,21 @@ fn path(name: &str) -> State {
     }
 }
 
-/// Repos named exactly `name`, via `gh api` when available (authenticated rate limit), else plain curl.
+/// Repos named exactly `name`. Uses `gh api` when it works (higher rate limit); if `gh` is
+/// missing or not logged in, falls back to unauthenticated curl (about 10 searches per minute).
 fn github(name: &str) -> State {
     let q = format!("{name} in:name");
+    let via_curl = || match util::body(&format!(
+        "https://api.github.com/search/repositories?q={}&per_page=30",
+        q.replace(' ', "+")
+    )) {
+        Ok((200, b)) => Ok(b),
+        Ok((403 | 429, _)) => {
+            Err("rate limited (run `gh auth login` for a higher limit)".to_string())
+        }
+        Ok((c, _)) => Err(format!("HTTP {c}")),
+        Err(e) => Err(e),
+    };
     let raw = if util::have("gh") {
         util::out(
             Command::new("gh")
@@ -201,15 +213,9 @@ fn github(name: &str) -> State {
                 .arg(format!("q={q}"))
                 .args(["-f", "per_page=30"]),
         )
+        .or_else(|_| via_curl())
     } else {
-        match util::body(&format!(
-            "https://api.github.com/search/repositories?q={}&per_page=30",
-            q.replace(' ', "+")
-        )) {
-            Ok((200, b)) => Ok(b),
-            Ok((c, _)) => Err(format!("HTTP {c}")),
-            Err(e) => Err(e),
-        }
+        via_curl()
     };
     match raw {
         Ok(b) => github_exact(&b, name),
