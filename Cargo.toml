@@ -1,0 +1,19 @@
+[package]
+name = "spawnpkg"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Check a project name across ecosystems, scaffold a Rust tool, and publish it to GitHub"
+license = "GPL-2.0-or-later"
+repository = "https://github.com/lazybrar/spawnpkg"
+readme = "README.md"
+keywords = ["scaffold", "name-check", "arch-linux", "github", "cargo"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
