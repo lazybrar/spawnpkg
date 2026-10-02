@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //! spawnpkg: check a project name across ecosystems, scaffold a Rust tool, publish it to GitHub.
 
+mod gate;
 mod publish;
+mod release;
 mod scaffold;
 mod sources;
 mod util;
@@ -27,7 +29,14 @@ usage:
       Cargo.toml, src, GPL-2.0-or-later LICENSE, README, CHANGELOG, CI, Cargo.lock,
       pkg/PKGBUILD (if cratepkg is installed) and a first git commit (--trailer adds a trailer line)
   spawnpkg publish [path] --public|--private [--yes] [--skip-tests]
-      fmt + tests, then creates the GitHub repo with gh and pushes; visibility is always explicit";
+      fmt + tests, then creates the GitHub repo with gh and pushes; visibility is always explicit
+  spawnpkg gate [path] [--fix]
+      fmt --check, clippy -D warnings, tests: one line on success, trimmed diagnostics on failure
+      (--fix runs `cargo fmt` instead of checking)
+  spawnpkg release <patch|minor|major> -m \"changelog line\" [path] [--push] [--trailer TEXT]
+                   [--no-package] [--skip-gate] [--dry-run]
+      gate, bump version, CHANGELOG entry, Cargo.lock, regenerate PKGBUILD and rebuild the package
+      (needs cratepkg), commit `<name> <ver>: <msg>`, tag v<ver>; --push also pushes branch and tag";
 
 #[derive(Debug, PartialEq)]
 enum Cmd {
@@ -52,6 +61,20 @@ enum Cmd {
         yes: bool,
         skip_tests: bool,
     },
+    Gate {
+        path: PathBuf,
+        fix: bool,
+    },
+    Release {
+        bump: release::Bump,
+        path: PathBuf,
+        message: String,
+        push: bool,
+        trailer: Option<String>,
+        no_package: bool,
+        skip_gate: bool,
+        dry_run: bool,
+    },
     Help,
     Version,
 }
@@ -63,7 +86,7 @@ fn parse_args(args: &[String]) -> Result<Cmd, String> {
     match first.as_str() {
         "-h" | "--help" | "help" => return Ok(Cmd::Help),
         "-V" | "--version" => return Ok(Cmd::Version),
-        "check" | "new" | "publish" => {}
+        "check" | "new" | "publish" | "gate" | "release" => {}
         other => return Err(format!("unknown command '{other}'")),
     }
     let allowed: &[&str] = match first.as_str() {
@@ -74,12 +97,32 @@ fn parse_args(args: &[String]) -> Result<Cmd, String> {
             "--trailer",
             "--skip-check",
             "--allow-taken",
+            "--no-github",
+        ],
+        "gate" => &["--fix"],
+        "release" => &[
+            "--message",
+            "--trailer",
+            "--push",
+            "--no-package",
+            "--skip-gate",
+            "--dry-run",
         ],
         _ => &["--public", "--private", "--yes", "--skip-tests"],
     };
-    let takes_value = ["--desc", "--dir", "--trailer"];
+    let takes_value = ["--desc", "--dir", "--trailer", "--message"];
     let (mut pos, mut flags, mut vals) = (Vec::new(), Vec::new(), Vec::new());
-    let mut it = args[1..].iter();
+    let mapped: Vec<String> = args[1..]
+        .iter()
+        .map(|a| {
+            if a == "-m" {
+                "--message".into()
+            } else {
+                a.clone()
+            }
+        })
+        .collect();
+    let mut it = mapped.iter();
     while let Some(a) = it.next() {
         if let Some(f) = a.strip_prefix("--").map(|_| a.as_str()) {
             if !allowed.contains(&f) {
@@ -130,6 +173,34 @@ fn parse_args(args: &[String]) -> Result<Cmd, String> {
                 skip_check: flag("--skip-check"),
                 allow_taken: flag("--allow-taken"),
                 no_github: flag("--no-github"),
+            })
+        }
+        "gate" => {
+            if pos.len() > 1 {
+                return Err("gate takes at most one path".into());
+            }
+            Ok(Cmd::Gate {
+                path: pos.first().map(PathBuf::from).unwrap_or_else(|| ".".into()),
+                fix: flag("--fix"),
+            })
+        }
+        "release" => {
+            let kind = pos
+                .first()
+                .and_then(|k| release::parse_bump(k))
+                .ok_or("release needs patch, minor or major")?;
+            if pos.len() > 2 {
+                return Err("release takes: <patch|minor|major> [path]".into());
+            }
+            Ok(Cmd::Release {
+                bump: kind,
+                path: pos.get(1).map(PathBuf::from).unwrap_or_else(|| ".".into()),
+                message: val("--message").ok_or("release needs -m \"changelog line\"")?,
+                push: flag("--push"),
+                trailer: val("--trailer"),
+                no_package: flag("--no-package"),
+                skip_gate: flag("--skip-gate"),
+                dry_run: flag("--dry-run"),
             })
         }
         _ => {
@@ -214,6 +285,31 @@ fn report(name: &str, res: &[Res], brief: bool, all: bool) -> bool {
 
 fn run(cmd: Cmd) -> Result<ExitCode, String> {
     match cmd {
+        Cmd::Gate { path, fix } => println!("{}", gate::run(&path, fix)?),
+        Cmd::Release {
+            bump,
+            path,
+            message,
+            push,
+            trailer,
+            no_package,
+            skip_gate,
+            dry_run,
+        } => {
+            let opts = release::Opts {
+                path,
+                bump,
+                message,
+                push,
+                trailer,
+                no_package,
+                skip_gate,
+                dry_run,
+            };
+            for line in release::release(&opts)? {
+                println!("{line}");
+            }
+        }
         Cmd::Help => println!("{USAGE}"),
         Cmd::Version => println!("spawnpkg {VERSION}"),
         Cmd::Check {
@@ -404,6 +500,41 @@ mod tests {
                 skip_tests: false
             })
         );
+    }
+
+    #[test]
+    fn gate_release_and_no_github_args() {
+        assert_eq!(
+            a(&["gate", "--fix"]),
+            Ok(Cmd::Gate {
+                path: ".".into(),
+                fix: true
+            })
+        );
+        assert_eq!(
+            a(&["release", "minor", "p", "-m", "msg", "--push", "--dry-run"]),
+            Ok(Cmd::Release {
+                bump: release::Bump::Minor,
+                path: "p".into(),
+                message: "msg".into(),
+                push: true,
+                trailer: None,
+                no_package: false,
+                skip_gate: false,
+                dry_run: true
+            })
+        );
+        assert!(a(&["release", "patch"]).is_err(), "message is required");
+        assert!(a(&["release", "huge", "-m", "x"]).is_err());
+        assert!(a(&["gate", "--nope"]).is_err());
+        // regression: `new` must accept --no-github (documented in the README)
+        assert!(matches!(
+            a(&["new", "x", "--no-github", "--skip-check"]),
+            Ok(Cmd::New {
+                no_github: true,
+                ..
+            })
+        ));
     }
 
     #[test]

@@ -36,6 +36,24 @@ Requires a clean git tree and a LICENSE, runs `cargo fmt --check` and `cargo tes
 then creates the repo under your logged-in `gh` account, pushes, and adds Cargo `keywords` as topics.
 Visibility is never defaulted.
 
+## Gate
+
+    spawnpkg gate            # fmt --check, clippy -D warnings, tests
+    spawnpkg gate --fix      # run `cargo fmt` instead of checking
+
+Success is one line: `fmt ok | clippy ok | tests ok (22 passed)`. On failure it stops at the first failing step and prints
+that step's diagnostics, trimmed to 30 lines. Exit status 0 or 1.
+
+## Release
+
+    spawnpkg release patch -m "what changed"            # or minor / major
+    spawnpkg release minor -m "..." --push --trailer "Co-Authored-By: ..."
+
+Runs the gate, bumps the version in `Cargo.toml`, adds a `CHANGELOG.md` entry, refreshes `Cargo.lock`, regenerates
+`pkg/PKGBUILD` and rebuilds the package (needs `cratepkg`; keeps a custom `--pkgname` / `--no-check`), commits
+`<name> <ver>: <message>`, tags `v<ver>`, and with `--push` pushes the branch and tag. Uncommitted changes are included in
+the release commit. `--dry-run` shows the plan; `--no-package` and `--skip-gate` skip those steps. Output is 2-3 lines.
+
 ## Install
 
     cd pkg && makepkg -si

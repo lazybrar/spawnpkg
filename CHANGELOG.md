@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.0
+- gate and release commands; new accepts --no-github
+
 ## 0.2.0
 - `--no-github` for `check` and `new` skips the GitHub probe.
 

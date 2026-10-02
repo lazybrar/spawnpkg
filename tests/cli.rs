@@ -141,3 +141,96 @@ fn no_github_flag_is_accepted() {
     );
     assert_eq!(run(&["check", "x", "--nope"]).status.code(), Some(2));
 }
+
+fn scaffold(name: &str) -> PathBuf {
+    let d = tmp(name).join("p");
+    let o = run(&["new", "p", "--skip-check", "--dir", d.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", err(&o));
+    d
+}
+
+fn git(d: &PathBuf, args: &[&str]) -> String {
+    let o = Command::new("git")
+        .args(args)
+        .current_dir(d)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&o.stdout).into_owned()
+}
+
+#[test]
+fn gate_reports_one_line_then_failure_then_fix() {
+    let d = scaffold("gate");
+    let p = d.to_str().unwrap();
+    let o = run(&["gate", p]);
+    assert!(o.status.success(), "{}", err(&o));
+    assert!(String::from_utf8_lossy(&o.stdout).starts_with("fmt ok | clippy ok | tests ok ("));
+    fs::write(d.join("src/main.rs"), "fn main(){println!(\"x\")}\n").unwrap();
+    let o = run(&["gate", p]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(err(&o).contains("fmt FAILED"));
+    assert!(run(&["gate", p, "--fix"]).status.success());
+}
+
+#[test]
+fn release_bumps_commits_and_tags() {
+    let d = scaffold("release");
+    let p = d.to_str().unwrap();
+    let dry = run(&["release", "minor", "-m", "x", p, "--dry-run"]);
+    assert!(dry.status.success(), "{}", err(&dry));
+    assert!(String::from_utf8_lossy(&dry.stdout).contains("dry run: 0.1.0 -> 0.2.0"));
+    assert!(
+        fs::read_to_string(d.join("Cargo.toml"))
+            .unwrap()
+            .contains("version = \"0.1.0\"")
+    );
+
+    let o = run(&[
+        "release",
+        "patch",
+        "-m",
+        "fix thing",
+        p,
+        "--no-package",
+        "--trailer",
+        "Co-Authored-By: T <t@example.com>",
+    ]);
+    assert!(o.status.success(), "{}", err(&o));
+    assert!(String::from_utf8_lossy(&o.stdout).contains("0.1.0 -> 0.1.1"));
+    assert!(
+        fs::read_to_string(d.join("Cargo.toml"))
+            .unwrap()
+            .contains("version = \"0.1.1\"")
+    );
+    assert!(
+        fs::read_to_string(d.join("CHANGELOG.md"))
+            .unwrap()
+            .starts_with("# Changelog\n\n## 0.1.1\n- fix thing\n\n## 0.1.0")
+    );
+    assert!(
+        fs::read_to_string(d.join("Cargo.lock"))
+            .unwrap()
+            .contains("version = \"0.1.1\"")
+    );
+    assert!(git(&d, &["tag"]).contains("v0.1.1"));
+    let msg = git(&d, &["log", "-1", "--format=%B"]);
+    assert!(msg.contains("p 0.1.1: fix thing") && msg.contains("Co-Authored-By: T"));
+    assert!(
+        git(&d, &["status", "--porcelain"]).is_empty(),
+        "release leaves a clean tree"
+    );
+
+    // a second release works and the same tag cannot be reused
+    assert!(
+        run(&["release", "patch", "-m", "again", p, "--no-package"])
+            .status
+            .success()
+    );
+    assert!(git(&d, &["tag"]).contains("v0.1.2"));
+}
+
+#[test]
+fn release_requires_message_and_valid_bump() {
+    assert_eq!(run(&["release", "patch"]).status.code(), Some(2));
+    assert_eq!(run(&["release", "huge", "-m", "x"]).status.code(), Some(2));
+}
